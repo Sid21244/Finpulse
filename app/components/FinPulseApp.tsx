@@ -2,346 +2,113 @@
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
-  AlertTriangle, ArrowDownLeft, ArrowRight, ArrowUpRight, BarChart3, Bell,
-  Check, ChevronDown, Download, Flag, Gauge, Headphones, Landmark, LoaderCircle,
-  LayoutDashboard, Menu, Mic, MoreHorizontal, Plus, ReceiptText, Search, Send,
-  Moon, Settings, ShieldAlert, Sparkles, Sun, Target, TrendingUp, Upload, Volume2, WalletCards, X, Zap,
+  AlertTriangle, ArrowDown, ArrowRight, Banknote, Bell, BookOpen, Bot,
+  BriefcaseBusiness, Building2, Check, ChevronDown, CircleDollarSign, CreditCard,
+  FileChartColumn, Fingerprint, Goal, Landmark, LayoutDashboard, Lightbulb, Menu,
+  Moon, MoreHorizontal, Plus, Search, Settings, ShieldCheck, Sparkles, Sun,
+  Target, TrendingUp, UserRound, WalletCards, X,
 } from 'lucide-react';
-import { cashFlow, debts, goals, spending, transactions } from '../data/mockData';
+import { cashFlow, goals as seedGoals, spending, transactions } from '../data/mockData';
 
-type PageId = 'dashboard' | 'transactions' | 'analytics' | 'assistant' | 'goals' | 'credit';
 type Theme = 'light' | 'dark';
-type LedgerTransaction = {
-  id: number;
-  merchant: string;
-  category: string;
-  date: string;
-  amount: number;
-  icon: string;
-  color: string;
-  status: string;
-};
-type ExpenseDraft = { merchant: string; category: string; amount: number; transcript: string };
-type AssistantMessage = { from: 'ai' | 'user'; text: string; source?: 'openai' | 'demo' };
+type PageId = 'overview' | 'ledger' | 'accounts' | 'insights' | 'health' | 'goals' | 'fraud' | 'tax' | 'settings' | 'manage';
+type GoalItem = { title: string; saved: number; target: number; date: string; color: string };
 
-interface SpeechResultEvent {
-  results: { [index: number]: { [index: number]: { transcript: string } } };
-}
-
-interface BrowserSpeechRecognition {
-  lang: string;
-  interimResults: boolean;
-  continuous: boolean;
-  onresult: ((event: SpeechResultEvent) => void) | null;
-  onerror: (() => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-}
-
-declare global {
-  interface Window {
-    SpeechRecognition?: new () => BrowserSpeechRecognition;
-    webkitSpeechRecognition?: new () => BrowserSpeechRecognition;
-  }
-}
-
-const navItems = [
-  { id: 'dashboard' as const, label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'transactions' as const, label: 'Transactions & alerts', icon: ReceiptText },
-  { id: 'analytics' as const, label: 'Analytics', icon: BarChart3 },
-  { id: 'assistant' as const, label: 'AI Assistant', icon: Sparkles },
-  { id: 'goals' as const, label: 'Savings goals', icon: Target },
-  { id: 'credit' as const, label: 'Debt & credit', icon: Gauge },
+const mainNav = [
+  { id: 'overview' as const, label: 'Overview', icon: LayoutDashboard },
+  { id: 'ledger' as const, label: 'Ledger', icon: BookOpen },
+  { id: 'accounts' as const, label: 'Accounts', icon: Landmark },
+  { id: 'insights' as const, label: 'Insights', icon: Sparkles },
+  { id: 'health' as const, label: 'Health', icon: ShieldCheck },
+  { id: 'goals' as const, label: 'Goals', icon: Goal },
+  { id: 'fraud' as const, label: 'Fraud', icon: Fingerprint },
+  { id: 'tax' as const, label: 'Tax insights', icon: FileChartColumn },
 ];
 
-const pageMeta: Record<PageId, { title: string; subtitle: string }> = {
-  dashboard: { title: 'Good morning, Alex', subtitle: 'Here’s your complete financial overview.' },
-  transactions: { title: 'Transactions & alerts', subtitle: 'Every movement, monitored in one place.' },
-  analytics: { title: 'Analytics', subtitle: 'Understand where your money goes and why.' },
-  assistant: { title: 'Fin — your AI copilot', subtitle: 'Ask anything about your financial life.' },
-  goals: { title: 'Savings goals', subtitle: 'Small, consistent moves toward what matters.' },
-  credit: { title: 'Debt & credit health', subtitle: 'A clear path to becoming debt-free.' },
+const pageCopy: Record<PageId, [string, string]> = {
+  overview: ['Overview', 'Your finances, clearly summarized.'], ledger: ['Ledger', 'Review and search every transaction.'],
+  accounts: ['Accounts', 'All your connected accounts in one place.'], insights: ['Insights', 'Practical patterns detected across your money.'],
+  health: ['Financial health', 'Understand the signals behind your score.'], goals: ['Goals', 'Track progress and create a goal that matters.'],
+  fraud: ['Fraud center', 'Review unusual activity and secure your accounts.'], tax: ['Tax insights', 'Stay ahead of estimated tax and deductions.'],
+  settings: ['Settings', 'Control your FinPulse experience.'], manage: ['Manage account', 'Update your profile and account preferences.'],
 };
 
-function money(value: number) {
-  return `${value < 0 ? '−' : '+'}₹${Math.abs(value).toLocaleString('en-IN')}`;
+const accounts = [
+  { name: 'HDFC Salary Account', type: 'Checking', digits: '4821', balance: 872540, icon: Building2, color: 'blue' },
+  { name: 'ICICI Coral', type: 'Credit card', digits: '1904', balance: -28400, icon: CreditCard, color: 'violet' },
+  { name: 'Groww Investments', type: 'Investment', digits: '7392', balance: 412800, icon: TrendingUp, color: 'green' },
+  { name: 'Apple Cash', type: 'Wallet', digits: '1111', balance: 15000, icon: WalletCards, color: 'slate' },
+];
+
+function inr(value: number) { return `${value < 0 ? '−' : ''}₹${Math.abs(value).toLocaleString('en-IN')}`; }
+function CardTitle({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) { return <div className="card-title"><h2>{children}</h2>{action}</div>; }
+function Metric({ label, value, note, icon: Icon, tone }: { label: string; value: string; note: string; icon: typeof Landmark; tone: string }) { return <article className="metric"><div><span>{label}</span><strong>{value}</strong><small>{note}</small></div><i className={tone}><Icon size={21}/></i></article>; }
+
+function CashFlow() {
+  return <div className="line-chart" aria-label="Income and expense trend over six months"><div className="y-labels"><span>₹70k</span><span>₹35k</span><span>₹0</span></div><div className="chart-lines income-line"/><div className="chart-lines expense-line"/><div className="chart-months">{cashFlow.map(item => <span key={item.month}>{item.month}</span>)}</div></div>;
 }
 
-function speechRecognition() {
-  const Constructor = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!Constructor) return null;
-  const recognition = new Constructor();
-  recognition.lang = 'en-IN';
-  recognition.interimResults = false;
-  recognition.continuous = false;
-  return recognition;
+function Donut() {
+  return <div className="spend-wrap"><div className="spend-donut"><div><strong>₹41,250</strong><span>Total</span></div></div><div className="spend-list">{spending.map(item => <div key={item.label}><i style={{background:item.color}}/><span>{item.label}</span><b>{inr(item.value)}</b><small>{item.percent}%</small></div>)}</div></div>;
 }
 
-function parseExpensePhrase(phrase: string): ExpenseDraft {
-  const normalized = phrase.replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
-  const amountMatch = normalized.match(/(?:₹|rs\.?|rupees?)\s*([\d.]+)/i) || normalized.match(/([\d.]+)/);
-  const merchantMatch = normalized.match(/\b(?:at|from|to)\s+([a-z][a-z\s&'-]*?)(?:\s+(?:today|yesterday|on|for)\b|$)/i);
-  const amount = amountMatch ? Number(amountMatch[1]) : 0;
-  const lower = normalized.toLowerCase();
-  const category = /grocery|groceries|supermarket|blinkit/.test(lower) ? 'Groceries'
-    : /uber|ola|cab|taxi|transport|fuel|petrol/.test(lower) ? 'Transport'
-      : /food|dinner|lunch|breakfast|restaurant|swiggy|zomato|cafe/.test(lower) ? 'Food & dining'
-        : /shop|amazon|clothes|shopping/.test(lower) ? 'Shopping'
-          : /movie|netflix|music|entertainment/.test(lower) ? 'Entertainment'
-            : 'Other';
-  const merchant = merchantMatch?.[1]
-    ? merchantMatch[1].trim().replace(/\b\w/g, (letter) => letter.toUpperCase())
-    : category === 'Other' ? 'Voice expense' : category;
-
-  return { merchant, category, amount, transcript: phrase };
+function MiniLedger({ limit = transactions.length }: { limit?: number }) {
+  return <div className="ledger-list">{transactions.slice(0,limit).map(item => <div className="ledger-row" key={item.id}><span className={`merchant ${item.color}`}>{item.icon}</span><div><strong>{item.merchant}</strong><small>{item.category}</small></div><span className="date">{item.date}</span><span className="posted"><i/> {item.status}</span><b className={item.amount > 0 ? 'gain' : ''}>{inr(item.amount)}</b><button className="bare" aria-label={`More options for ${item.merchant}`}><MoreHorizontal size={17}/></button></div>)}</div>;
 }
 
-function SectionHeader({ title, subtitle, action }: { title: string; subtitle?: string; action?: React.ReactNode }) {
-  return <div className="section-header"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div>{action}</div>;
+function Overview({ go }: { go: (page: PageId) => void }) {
+  return <><section className="metrics"><Metric label="Total balance" value="₹12,71,940" note="↑ 3.2% vs last month" icon={Landmark} tone="blue"/><Metric label="Monthly spend" value="₹41,250" note="↓ 8.7% vs last month" icon={CreditCard} tone="violet"/><Metric label="Income" value="₹65,000" note="↑ 5.4% vs last month" icon={ArrowDown} tone="green"/><Metric label="Emergency runway" value="5.2 months" note="On track" icon={ShieldCheck} tone="amber"/></section><section className="overview-grid"><div className="overview-main"><div className="charts"><article className="card cash"><CardTitle action={<button className="select-button">Last 6 months <ChevronDown size={14}/></button>}>Cash flow</CardTitle><div className="legend"><span><i className="blue-dot"/>Income</span><span><i className="red-dot"/>Expenses</span><span><i className="dash-dot"/>Net</span></div><CashFlow/></article><article className="card spending"><CardTitle action={<button className="select-button">This month <ChevronDown size={14}/></button>}>Spending by category</CardTitle><Donut/><button className="link-button" onClick={()=>go('insights')}>View full breakdown <ArrowRight size={15}/></button></article></div><div className="lower-grid"><article className="card account-preview"><CardTitle action={<button className="link-button" onClick={()=>go('accounts')}>Edit</button>}>Accounts</CardTitle>{accounts.map(({name,type,digits,balance,icon:Icon,color})=><div className="account-line" key={name}><i className={color}><Icon size={17}/></i><div><strong>{name}</strong><small>•••• {digits}</small></div><div><b>{inr(balance)}</b><small>{type}</small></div></div>)}<button className="link-button bottom-link" onClick={()=>go('accounts')}>View all accounts <ArrowRight size={15}/></button></article><article className="card recent"><CardTitle action={<button className="link-button" onClick={()=>go('ledger')}>View all</button>}>Recent transactions</CardTitle><MiniLedger limit={5}/><button className="link-button bottom-link" onClick={()=>go('ledger')}>View all transactions <ArrowRight size={15}/></button></article></div></div><aside className="ai-rail"><CardTitle><span className="spark-title"><Sparkles size={19}/> FinPulse AI Insights</span></CardTitle><article className="insight good"><TrendingUp size={21}/><h3>Great job staying on track!</h3><p>You’ve spent 8.7% less this month compared with August.</p><button onClick={()=>go('insights')}>View spending</button></article><article className="insight warn"><AlertTriangle size={21}/><h3>Dining is higher than usual</h3><p>You’ve spent ₹2,110 more on dining compared with your 3-month average.</p><button onClick={()=>go('insights')}>See dining trends</button></article><article className="insight tip"><Target size={21}/><h3>Boost your emergency fund</h3><p>Add ₹2,500 more this month to reach your runway goal faster.</p><button onClick={()=>go('goals')}>Adjust plan</button></article><div className="financial-tip"><Lightbulb size={20}/><div><h3>Financial tip</h3><p>Automate savings right after payday to make it effortless and consistent.</p></div></div></aside></section></>;
 }
 
-function MetricCard({ icon: Icon, label, value, note, tone = 'blue' }: { icon: typeof WalletCards; label: string; value: string; note: string; tone?: string }) {
-  return <article className="metric-card"><span className={`metric-icon ${tone}`}><Icon size={17} /></span><span className="metric-label">{label}</span><strong>{value}</strong><small>{note}</small></article>;
+function LedgerPage() {
+  const [query,setQuery]=useState(''); const filtered=useMemo(()=>transactions.filter(item=>`${item.merchant} ${item.category}`.toLowerCase().includes(query.toLowerCase())),[query]);
+  return <section className="card page-card"><div className="page-toolbar"><div className="search-field"><Search size={18}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search merchant or category"/></div><button className="primary"><Plus size={16}/> Add transaction</button></div><div className="table-head"><span>Merchant</span><span>Date</span><span>Status</span><span>Amount</span></div><div className="ledger-list">{filtered.map(item=><div className="ledger-row" key={item.id}><span className={`merchant ${item.color}`}>{item.icon}</span><div><strong>{item.merchant}</strong><small>{item.category}</small></div><span className="date">{item.date}</span><span className="posted"><i/> {item.status}</span><b className={item.amount>0?'gain':''}>{inr(item.amount)}</b><button className="bare"><MoreHorizontal size={17}/></button></div>)}</div></section>;
 }
 
-function CashFlowChart({ compact = false }: { compact?: boolean }) {
-  return <div className={`cash-chart ${compact ? 'compact' : ''}`}>
-    <div className="chart-grid"><span>₹70k</span><span>₹35k</span><span>₹0</span></div>
-    <div className="bars-area">{cashFlow.map(item => <div className="month-bars" key={item.month}><div className="bar-pair"><i className="income-bar" style={{ height: `${item.income / .72}%` }} /><i className="expense-bar" style={{ height: `${item.expense / .72}%` }} /></div><span>{item.month}</span></div>)}</div>
-  </div>;
+function AccountsPage({ notify }: { notify: (message:string)=>void }) {
+  return <><section className="account-total"><div><span>Total across all accounts</span><strong>₹12,71,940</strong><small>Last synced just now</small></div><button className="primary" onClick={()=>notify('Connect account flow opened')}><Plus size={16}/> Connect account</button></section><section className="accounts-grid">{accounts.map(({name,type,digits,balance,icon:Icon,color})=><article className="card account-card" key={name}><div className="account-card-top"><i className={color}><Icon size={21}/></i><button className="bare"><MoreHorizontal/></button></div><span>{type}</span><h3>{name}</h3><small>•••• {digits}</small><strong>{inr(balance)}</strong><p><i/> Connected and synced</p></article>)}</section></>;
 }
 
-function TransactionList({ ledger, limit }: { ledger: LedgerTransaction[]; limit?: number }) {
-  const list = limit ? ledger.slice(0, limit) : ledger;
-  return <div className="transaction-list">{list.map(transaction => <div className="transaction-row" key={transaction.id}>
-    <span className={`merchant-icon ${transaction.color}`}>{transaction.icon}</span>
-    <div className="transaction-name"><strong>{transaction.merchant}</strong><span>{transaction.category}</span></div>
-    <span className="transaction-date">{transaction.date}</span>
-    <span className={`status-pill ${transaction.status.toLowerCase().replace('-', '')}`}>{transaction.status}</span>
-    <strong className={transaction.amount > 0 ? 'amount positive-text' : 'amount'}>{money(transaction.amount)}</strong>
-    <button className="icon-button small" aria-label={`More options for ${transaction.merchant}`}><MoreHorizontal size={17}/></button>
-  </div>)}</div>;
+function InsightsPage({ go }: { go:(page:PageId)=>void }) {
+  return <><section className="insight-hero"><span><Bot size={20}/> Personalized this morning</span><h2>Your money is moving in the right direction.</h2><p>Your savings rate improved to 36.5%, but dining and overlapping subscriptions are costing you an avoidable ₹3,457 each month.</p></section><section className="insight-grid"><article className="card large-insight"><div className="insight-icon good"><ArrowDown/></div><span>SPENDING PATTERN</span><h3>Food delivery spend dropped 18%</h3><p>That saves roughly ₹1,480 per month if the pattern continues.</p><button className="link-button" onClick={()=>go('ledger')}>See transactions <ArrowRight size={15}/></button></article><article className="card large-insight"><div className="insight-icon warn"><AlertTriangle/></div><span>SUBSCRIPTIONS</span><h3>Three plans overlap</h3><p>Review Netflix, Prime and Hotstar before their next renewals.</p><button className="link-button">Review subscriptions <ArrowRight size={15}/></button></article><article className="card large-insight"><div className="insight-icon blue"><Target/></div><span>GOAL OPPORTUNITY</span><h3>Your Japan goal can arrive early</h3><p>Move the ₹1,480 monthly saving into that goal to finish 3 months sooner.</p><button className="link-button" onClick={()=>go('goals')}>Update goal <ArrowRight size={15}/></button></article></section></>;
 }
 
-function Dashboard({ navigate, ledger }: { navigate: (page: PageId) => void; ledger: LedgerTransaction[] }) {
-  const addedExpenses = ledger.filter((item) => item.id > transactions.length).reduce((sum, item) => sum + (item.amount < 0 ? Math.abs(item.amount) : 0), 0);
-  const monthlyExpenses = 41_250 + addedExpenses;
-  return <>
-    <section className="hero-card">
-      <div className="hero-copy"><span className="hero-label">Total net worth</span><strong>₹8,42,500</strong><span className="positive-badge"><ArrowUpRight size={14}/> 6.8% this month</span></div>
-      <div className="wealth-chart" aria-label="Net worth has increased over six months"><div className="wealth-glow"/><div className="wealth-points"><i/><i/><i/><i/><i/><i/><i/><i/></div><div className="wealth-labels"><span>Apr</span><span>May</span><span>Jun</span><span>Jul</span><span>Aug</span><span>Sep</span></div></div>
-      <div className="balance-row"><span>Assets <b>₹10,80,000</b></span><span>Liabilities <b>₹2,37,500</b></span><span>Investments <b>₹4,12,800</b></span></div>
-    </section>
-    <section className="metrics-grid">
-      <MetricCard icon={ArrowDownLeft} label="Monthly income" value="₹65,000" note="↑ 4.2% vs last month" tone="mint" />
-      <MetricCard icon={ArrowUpRight} label="Monthly expenses" value={`₹${monthlyExpenses.toLocaleString('en-IN')}`} note={`${Math.round(monthlyExpenses / 650)}% of monthly income`} tone="blue" />
-      <MetricCard icon={Gauge} label="Debt-to-income" value="47.5%" note="High — reduce costly debt" tone="violet" />
-      <MetricCard icon={ShieldAlert} label="Emergency runway" value="5.2 mo" note="Healthy buffer" tone="amber" />
-    </section>
-    <section className="dashboard-grid">
-      <article className="panel cash-panel"><SectionHeader title="Cash flow" subtitle="Last 6 months" action={<button className="text-button" onClick={() => navigate('analytics')}>View analytics <ArrowRight size={14}/></button>} /><div className="chart-legend"><span><i className="legend-income"/> Income</span><span><i className="legend-expense"/> Expenses</span></div><CashFlowChart compact /></article>
-      <article className="panel insight-panel"><div className="ai-chip"><Sparkles size={14}/> FINPULSE AI</div><h3>You can save ₹4,200 more this month.</h3><p>Your food delivery spend is 28% higher than your 3-month average. A weekly cap of ₹1,400 keeps your Japan goal on track.</p><button className="insight-button" onClick={() => navigate('assistant')}>See the plan <ArrowRight size={15}/></button></article>
-      <article className="panel spending-panel"><SectionHeader title="Spending by category" subtitle="September 2026" /><div className="spending-wrap"><div className="donut"><div><strong>₹41.2k</strong><span>Total spent</span></div></div><div className="category-list">{spending.map(item => <div className="category-row" key={item.label}><i style={{background:item.color}}/><span>{item.label}</span><b>{item.percent}%</b></div>)}</div></div></article>
-      <article className="panel activity-panel"><SectionHeader title="Recent activity" action={<button className="text-button" onClick={() => navigate('transactions')}>View all <ArrowRight size={14}/></button>} /><TransactionList ledger={ledger} limit={4}/></article>
-    </section>
-  </>;
+function HealthPage() {
+  return <section className="health-grid"><article className="card score"><span>FINANCIAL HEALTH SCORE</span><div className="score-ring"><strong>78</strong><small>/ 100</small></div><h3>Strong</h3><p>Your cash reserve is healthy. High-interest credit is the largest drag on your score.</p></article><article className="card health-factors"><CardTitle>Score factors</CardTitle>{[['Cash flow','Excellent',92],['Savings rate','Strong',81],['Debt load','Needs work',58],['Emergency fund','Good',74]].map(([name,label,width])=><div className="factor" key={String(name)}><div><span>{name}</span><b>{label}</b></div><i><em style={{width:`${width}%`}}/></i></div>)}</article></section>;
 }
 
-function TransactionsPage({ ledger }: { ledger: LedgerTransaction[] }) {
-  const [filter, setFilter] = useState('All');
-  const [query, setQuery] = useState('');
-  const filtered = useMemo(() => ledger.filter(t => (filter === 'All' || (filter === 'Income' ? t.amount > 0 : t.amount < 0)) && t.merchant.toLowerCase().includes(query.toLowerCase())), [filter, query, ledger]);
-  const moneyOut = 41_250 + ledger.filter((item) => item.id > transactions.length && item.amount < 0).reduce((sum, item) => sum + Math.abs(item.amount), 0);
-  return <>
-    <section className="summary-strip"><MetricCard icon={WalletCards} label="Money in" value="₹65,000" note="1 credit this month" tone="mint" /><MetricCard icon={ReceiptText} label="Money out" value={`₹${moneyOut.toLocaleString('en-IN')}`} note={`${37 + Math.max(0, ledger.length - transactions.length)} debits this month`} tone="blue" /><MetricCard icon={Flag} label="Flagged" value="1" note="Needs your attention" tone="coral" /></section>
-    <section className="fraud-alert"><span className="fraud-icon"><AlertTriangle size={21}/></span><div><div className="alert-kicker">POTENTIAL FRAUD DETECTED</div><h3>Unusual card payment of ₹7,990 at “DIGITAL HUB”</h3><p>Today, 3:42 AM · ICICI Credit Card ••4821 · Bengaluru</p></div><div className="fraud-actions"><button className="outline-danger">This wasn’t me</button><button className="safe-button"><Check size={15}/> It was me</button></div></section>
-    <section className="panel transactions-panel"><div className="transaction-toolbar"><div className="search-box"><Search size={17}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search transactions" aria-label="Search transactions"/></div><div className="filter-chips">{['All','Expenses','Income'].map(item => <button onClick={() => setFilter(item)} className={filter===item?'active':''} key={item}>{item}</button>)}</div><button className="outline-button"><Download size={16}/> Export</button></div><div className="table-labels"><span>Merchant</span><span>Date</span><span>Status</span><span>Amount</span></div><div className="transaction-list">{filtered.map(transaction => <div className="transaction-row" key={transaction.id}><span className={`merchant-icon ${transaction.color}`}>{transaction.icon}</span><div className="transaction-name"><strong>{transaction.merchant}</strong><span>{transaction.category}</span></div><span className="transaction-date">{transaction.date}</span><span className={`status-pill ${transaction.status.toLowerCase().replace('-','')}`}>{transaction.status}</span><strong className={transaction.amount > 0 ? 'amount positive-text' : 'amount'}>{money(transaction.amount)}</strong><button className="icon-button small"><MoreHorizontal size={17}/></button></div>)}</div></section>
-  </>;
+function GoalsPage({ items, addGoal, contribute }: { items:GoalItem[]; addGoal:()=>void; contribute:(index:number)=>void }) {
+  const saved=items.reduce((sum,item)=>sum+item.saved,0); const targets=items.reduce((sum,item)=>sum+item.target,0);
+  return <><section className="goal-summary"><div><span>Total saved toward goals</span><strong>{inr(saved)}</strong><p>{inr(targets-saved)} remaining across {items.length} goals</p></div><button className="primary light" onClick={addGoal}><Plus size={17}/> Add goal</button></section><section className="goals-grid">{items.map((goal,index)=>{const percent=Math.min(100,Math.round(goal.saved/goal.target*100));return <article className="card goal-card" key={`${goal.title}-${index}`}><div className={`goal-symbol ${goal.color}`}><Target size={21}/></div><button className="bare"><MoreHorizontal/></button><h3>{goal.title}</h3><p>Target: {goal.date}</p><div className="goal-money"><strong>{inr(goal.saved)}</strong><span>of {inr(goal.target)}</span></div><div className="progress"><i style={{width:`${percent}%`}}/></div><div className="goal-foot"><b>{percent}% complete</b><span>{inr(goal.target-goal.saved)} to go</span></div><button className="contribute" onClick={()=>contribute(index)}><Plus size={15}/> Add ₹5,000 contribution</button></article>})}<button className="new-goal" onClick={addGoal}><span><Plus size={24}/></span><strong>Create a new goal</strong><small>Turn your next plan into a target</small></button></section></>;
 }
 
-function AnalyticsPage() {
-  return <>
-    <section className="analytics-summary"><div><span>Net cash flow</span><strong>+₹23,750</strong><small><TrendingUp size={13}/> 12.4% better than August</small></div><div><span>Average daily spend</span><strong>₹1,375</strong><small>₹210 below your limit</small></div><div><span>Savings rate</span><strong>36.5%</strong><small>Top 20% for your income</small></div></section>
-    <section className="analytics-grid">
-      <article className="panel wide-chart"><SectionHeader title="Income vs expenses" subtitle="Monthly cash flow over the last 6 months" action={<button className="range-button">6 months <ChevronDown size={14}/></button>}/><div className="chart-legend"><span><i className="legend-income"/> Income</span><span><i className="legend-expense"/> Expenses</span></div><CashFlowChart/></article>
-      <article className="panel category-panel"><SectionHeader title="Expense breakdown" subtitle="September 2026"/><div className="large-donut"><div><strong>₹41,250</strong><span>Across 37 payments</span></div></div><div className="category-list detailed">{spending.map(item => <div className="category-row" key={item.label}><i style={{background:item.color}}/><span>{item.label}<small>₹{item.value.toLocaleString('en-IN')}</small></span><b>{item.percent}%</b></div>)}</div></article>
-      <article className="panel habits-panel"><SectionHeader title="Spending signals" subtitle="Patterns worth knowing"/><div className="signal-list"><div><span className="signal-icon up"><ArrowUpRight size={17}/></span><div><strong>Dining is trending up</strong><p>+28% over your 3-month average</p></div><b>₹2,110</b></div><div><span className="signal-icon down"><ArrowDownLeft size={17}/></span><div><strong>Transport improved</strong><p>12 fewer cab trips than August</p></div><b>−₹980</b></div><div><span className="signal-icon pulse"><Zap size={17}/></span><div><strong>Subscriptions overlap</strong><p>3 streaming plans renewed this week</p></div><b>₹1,347</b></div></div></article>
-    </section>
-  </>;
+function FraudPage({ notify }: { notify:(message:string)=>void }) {
+  return <><section className="fraud-banner"><div className="safe-shield"><ShieldCheck/></div><div><span>PROTECTION STATUS</span><h2>Your accounts are actively monitored</h2><p>We checked 43 transactions across 4 accounts today.</p></div><b>All systems active</b></section><section className="card alert-card"><div className="alert-head"><span className="danger-icon"><AlertTriangle/></span><div><span>REQUIRES REVIEW</span><h3>Unusual payment at DIGITAL HUB</h3><p>₹7,990 · Today, 3:42 AM · ICICI Coral ••1904 · Bengaluru</p></div></div><div className="fraud-buttons"><button onClick={()=>notify('Card locked. Our fraud team has been notified.')}>This wasn’t me</button><button onClick={()=>notify('Transaction marked as recognized')}><Check size={15}/> It was me</button></div></section></>;
 }
 
-function AssistantPage({ ledger }: { ledger: LedgerTransaction[] }) {
-  const [messages, setMessages] = useState<AssistantMessage[]>([{ from: 'ai', text: 'Good morning, Alex. I can explain your spending, debt, emergency runway, and suspicious activity using the simulated ledger. What do you want to understand?', source: 'demo' }]);
-  const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [listening, setListening] = useState(false);
-  const [mode, setMode] = useState<'openai' | 'demo'>('demo');
-  const [voiceError, setVoiceError] = useState('');
-
-  const speak = (text: string) => {
-    if (!('speechSynthesis' in window)) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'en-IN';
-    utterance.rate = 1.02;
-    window.speechSynthesis.speak(utterance);
-  };
-
-  const ask = async (text: string, speakReply = false) => {
-    const question = text.trim();
-    if (!question || loading) return;
-    setMessages((current) => [...current, { from: 'user', text: question }]);
-    setInput('');
-    setVoiceError('');
-    setLoading(true);
-
-    try {
-      const response = await fetch('/api/ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question, ledger }),
-      });
-      const payload = await response.json() as { answer?: string; source?: 'openai' | 'demo'; error?: string };
-      if (!response.ok || !payload.answer) throw new Error(payload.error || 'Fin could not answer that question.');
-      const source = payload.source === 'openai' ? 'openai' : 'demo';
-      setMode(source);
-      setMessages((current) => [...current, { from: 'ai', text: payload.answer as string, source }]);
-      if (speakReply) speak(payload.answer);
-    } catch (error) {
-      setMessages((current) => [...current, { from: 'ai', text: error instanceof Error ? error.message : 'Fin could not answer right now.', source: 'demo' }]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const askByVoice = () => {
-    const recognition = speechRecognition();
-    if (!recognition) {
-      setVoiceError('Voice recognition is not supported in this browser. Type your question instead.');
-      return;
-    }
-    setVoiceError('');
-    setListening(true);
-    recognition.onresult = (event) => {
-      const transcript = event.results[0]?.[0]?.transcript || '';
-      setInput(transcript);
-      void ask(transcript, true);
-    };
-    recognition.onerror = () => setVoiceError('I could not hear that clearly. Try again or type the question.');
-    recognition.onend = () => setListening(false);
-    recognition.start();
-  };
-
-  return <section className="assistant-layout"><article className="assistant-chat panel"><div className="assistant-intro"><div className="ai-orb"><Sparkles size={25}/></div><div><span>FINPULSE AI</span><strong>Evidence-backed answers from your ledger</strong></div><span className={`online-dot ${mode}`}>● {mode === 'openai' ? 'OpenAI' : 'Demo fallback'}</span></div><div className="messages" aria-live="polite">{messages.map((message,index)=><div className={`message ${message.from}`} key={`${message.from}-${index}`}>{message.from==='ai'&&<span className="tiny-orb"><Sparkles size={14}/></span>}<div><p>{message.text}</p>{message.from==='ai'&&<button className="speak-answer" onClick={()=>speak(message.text)} aria-label="Read this answer aloud"><Volume2 size={13}/> Listen</button>}</div></div>)}{loading&&<div className="message ai loading-message"><span className="tiny-orb"><Sparkles size={14}/></span><p><LoaderCircle size={15}/> Analysing your ledger…</p></div>}</div><div className="quick-prompts">{['Where did most of my money go?','Can I afford a ₹50k trip?','How risky is my debt?','Show suspicious transactions'].map(question=><button onClick={()=>void ask(question)} disabled={loading} key={question}>{question}</button>)}</div><form className="chat-input" onSubmit={(event:FormEvent)=>{event.preventDefault();void ask(input)}}><input value={input} onChange={event=>setInput(event.target.value)} placeholder={listening?'Listening…':'Ask about spending, goals, debt, or fraud'} aria-label="Ask FinPulse AI"/><button type="button" className={`assistant-voice-button ${listening?'listening':''}`} onClick={askByVoice} aria-label="Ask with your voice"><Mic size={18}/></button><button type="submit" aria-label="Send message" disabled={loading||!input.trim()}><Send size={18}/></button></form>{voiceError&&<small className="voice-error">{voiceError}</small>}<small className="ai-disclaimer">Simulated financial data. Educational estimates only, not professional financial, credit, fraud, investment, or tax advice.</small></article><aside className="assistant-side"><article className="panel pulse-card"><div className="ai-chip"><Zap size={14}/> DAILY PULSE</div><h3>You’re ₹1,380 under budget this week.</h3><p>Dining is the only category above pace. Ask Fin to explain the transactions behind it.</p><div className="pulse-meter"><i/></div><div className="pulse-labels"><span>₹8,920 spent</span><span>₹10,300 limit</span></div></article><article className="panel context-card"><SectionHeader title="Evidence Fin can use"/><div><span><Landmark size={16}/> ₹65,000 monthly income</span><span><ReceiptText size={16}/> {ledger.length} recent ledger entries</span><span><Target size={16}/> 3 active savings goals</span><span><ShieldAlert size={16}/> 1 anomaly signal</span></div></article></aside></section>;
+function TaxPage() {
+  return <><section className="tax-metrics"><Metric label="Estimated annual tax" value="₹1,18,400" note="Based on current income" icon={CircleDollarSign} tone="blue"/><Metric label="Deductions tracked" value="₹1,42,000" note="80C limit: ₹1,50,000" icon={FileChartColumn} tone="green"/><Metric label="Potential savings" value="₹2,496" note="₹8,000 deduction gap" icon={Banknote} tone="amber"/></section><section className="card tax-card"><CardTitle>Tax opportunities</CardTitle><div className="tax-row"><i><BriefcaseBusiness/></i><div><h3>Complete your 80C allocation</h3><p>Investing the remaining ₹8,000 before March could reduce estimated tax.</p></div><b>High impact</b></div><div className="tax-row"><i><Landmark/></i><div><h3>Home-loan interest</h3><p>₹1,64,200 in eligible interest has been identified for review.</p></div><b>Tracked</b></div><small className="disclaimer">Estimates only. Verify eligibility with a qualified tax professional before filing.</small></section></>;
 }
 
-function GoalsPage() {
-  return <><section className="goal-hero"><div><span className="hero-label">Total saved toward goals</span><strong>₹3,62,000</strong><p>₹3,45,000 remaining across 3 goals</p></div><div className="goal-hero-stat"><span>This month</span><strong>₹18,500</strong><small>₹2,500 ahead of plan</small></div></section><section className="goals-grid">{goals.map((goal,index)=>{const percent=Math.round(goal.saved/goal.target*100); return <article className="panel goal-card" key={goal.title}><div className={`goal-icon ${goal.color}`}>{index===0?<ShieldAlert size={20}/>:index===1?<Target size={20}/>:<WalletCards size={20}/>}</div><button className="icon-button"><MoreHorizontal size={18}/></button><h3>{goal.title}</h3><p>Target: {goal.date}</p><div className="goal-numbers"><strong>₹{goal.saved.toLocaleString('en-IN')}</strong><span>of ₹{goal.target.toLocaleString('en-IN')}</span></div><div className="progress-track"><i style={{width:`${percent}%`}}/></div><div className="goal-foot"><b>{percent}% complete</b><span>₹{(goal.target-goal.saved).toLocaleString('en-IN')} to go</span></div><button className="contribute-button"><Plus size={15}/> Add contribution</button></article>})}<button className="new-goal-card"><span><Plus size={24}/></span><strong>Create a new goal</strong><small>Turn your next plan into a target</small></button></section><section className="panel plan-panel"><div className="plan-icon"><Sparkles size={20}/></div><div><span className="alert-kicker">SMART SAVINGS PLAN</span><h3>Raise your monthly auto-save by ₹2,500</h3><p>You’ll reach your emergency fund 2 months early without affecting your regular bills.</p></div><button className="primary-button">Review plan</button></section></>;
+function SettingsPage({ theme, chooseTheme }: { theme:Theme; chooseTheme:(theme:Theme)=>void }) {
+  return <section className="card settings-card"><CardTitle>Appearance</CardTitle><p>Choose how FinPulse looks on this device.</p><div className="appearance-options"><button className={theme==='light'?'active':''} onClick={()=>chooseTheme('light')}><span className="theme-preview light-preview"><i/><i/><i/></span><b><Sun size={17}/> Light theme</b><small>Bright and clean</small>{theme==='light'&&<Check/>}</button><button className={theme==='dark'?'active':''} onClick={()=>chooseTheme('dark')}><span className="theme-preview dark-preview"><i/><i/><i/></span><b><Moon size={17}/> Dark theme</b><small>Easy on the eyes</small>{theme==='dark'&&<Check/>}</button></div><div className="settings-divider"/><CardTitle>Notifications</CardTitle>{['Unusual transaction alerts','Weekly financial summary','Goal progress reminders'].map((item,index)=><label className="toggle-row" key={item}><span><b>{item}</b><small>{index===0?'Immediate fraud and anomaly notifications':'Helpful account updates from FinPulse'}</small></span><input type="checkbox" defaultChecked={index<2}/><i/></label>)}</section>;
 }
 
-function CreditPage() {
-  const creditFactors = [
-    ['Payment history', 'Excellent', '97%'],
-    ['Credit utilisation', 'Good', '78%'],
-    ['Credit age', 'Good', '69%'],
-    ['Credit mix', 'Fair', '54%'],
-  ];
-
-  return <>
-    <section className="credit-top">
-      <article className="panel score-card">
-        <div><span>Financial-health indicator</span><strong>78/100</strong><b>Strong</b><small>Internal estimate · simulated data</small></div>
-        <div className="score-gauge"><i/><span>78</span></div>
-      </article>
-      <article className="panel debt-summary">
-        <SectionHeader title="Debt snapshot"/>
-        <div className="debt-big"><div><span>Total outstanding</span><strong>₹22,45,900</strong></div><span className="down-badge"><ArrowDownLeft size={14}/> ₹43,220 this month</span></div>
-        <div className="debt-stats"><span>Monthly EMIs <b>₹30,850</b></span><span>Weighted rate <b>9.1%</b></span><span>Debt-to-income <b>47.5%</b></span></div>
-      </article>
-    </section>
-    <section className="credit-grid">
-      <article className="panel">
-        <SectionHeader title="Credit score factors" subtitle="What’s moving your score"/>
-        <div className="factor-list">{creditFactors.map(([label,status,width]) => <div className="factor" key={label}><div><span>{label}</span><b className={status.toLowerCase()}>{status}</b></div><div><i style={{width}}/></div></div>)}</div>
-      </article>
-      <article className="panel debts-list">
-        <SectionHeader title="Your debts" subtitle="Ordered by recommended payoff priority" action={<button className="range-button">Avalanche <ChevronDown size={14}/></button>}/>
-        {debts.map((debt,index) => {
-          const paid = Math.round((1 - debt.balance / debt.original) * 100);
-          return <div className="debt-row" key={debt.name}><span className="debt-rank">{index+1}</span><div className="debt-name"><strong>{debt.name}</strong><span>{debt.rate} interest · {debt.emi ? `₹${debt.emi.toLocaleString('en-IN')} EMI` : 'Revolving'}</span><div className="mini-progress"><i style={{width:`${paid}%`,background:debt.color}}/></div></div><div><strong>₹{debt.balance.toLocaleString('en-IN')}</strong><span>{paid}% repaid</span></div><button className="icon-button"><ArrowRight size={17}/></button></div>;
-        })}
-      </article>
-    </section>
-  </>;
+function ManagePage({ notify }: { notify:(message:string)=>void }) {
+  return <section className="card profile-settings"><div className="profile-hero"><span className="big-avatar">AS</span><div><h2>Alex Sharma</h2><p>alex@example.com</p></div><button onClick={()=>notify('Profile photo picker opened')}>Change photo</button></div><form onSubmit={(e)=>{e.preventDefault();notify('Account details saved')}}><label>Full name<input defaultValue="Alex Sharma"/></label><label>Email address<input defaultValue="alex@example.com" type="email"/></label><label>Phone number<input defaultValue="+91 98765 43210"/></label><label>Primary currency<select defaultValue="INR"><option value="INR">Indian Rupee (INR)</option><option value="USD">US Dollar (USD)</option></select></label><button className="primary" type="submit">Save changes</button></form></section>;
 }
 
-function VoiceModal({ close, save }: { close:()=>void; save:(expense:ExpenseDraft)=>void }) {
-  const [listening,setListening]=useState(false);
-  const [transcript,setTranscript]=useState('');
-  const [amount,setAmount]=useState('');
-  const [merchant,setMerchant]=useState('');
-  const [category,setCategory]=useState('Other');
-  const [error,setError]=useState('');
-
-  const applyPhrase=(phrase:string)=>{
-    const parsed=parseExpensePhrase(phrase);
-    setTranscript(parsed.transcript);
-    if(parsed.amount>0)setAmount(String(parsed.amount));
-    setMerchant(parsed.merchant);
-    setCategory(parsed.category);
-  };
-  const listen=()=>{
-    const recognition=speechRecognition();
-    if(!recognition){setError('Voice recognition is unavailable here. Use the review fields below.');return;}
-    setError('');
-    setListening(true);
-    recognition.onresult=(event)=>applyPhrase(event.results[0]?.[0]?.transcript||'');
-    recognition.onerror=()=>setError('I could not understand that. Try once more or enter it manually.');
-    recognition.onend=()=>setListening(false);
-    recognition.start();
-  };
-  const submit=(event:FormEvent)=>{
-    event.preventDefault();
-    const numericAmount=Number(amount);
-    if(!Number.isFinite(numericAmount)||numericAmount<=0){setError('Enter a valid expense amount.');return;}
-    if(!merchant.trim()){setError('Add a merchant or description.');return;}
-    save({merchant:merchant.trim(),category,amount:numericAmount,transcript});
-  };
-
-  return <div className="modal-backdrop" onMouseDown={close}><form className="voice-modal" onSubmit={submit} onMouseDown={event=>event.stopPropagation()}><button type="button" className="modal-close" onClick={close} aria-label="Close voice expense"><X size={20}/></button><div className={`voice-orb ${listening?'listening':''}`}><Mic size={28}/><i/><i/></div><span className="alert-kicker">VOICE EXPENSE</span><h2>{listening?'Listening…':transcript?'Review the parsed expense':'Add an expense by voice'}</h2><p>{listening?'Say “Add ₹850 spent on dinner at Social today”':transcript?`“${transcript}”`:'Speak naturally. FinPulse will extract the amount, merchant, and category for your review.'}</p><button type="button" className={`listen-button ${listening?'stop':''}`} onClick={listen} disabled={listening}>{listening?'Listening…':transcript?'Record again':'Start listening'}</button><div className="voice-divider"><span>review before saving</span></div><div className="manual-fields expense-review"><label>Amount<input inputMode="decimal" value={amount} onChange={event=>setAmount(event.target.value.replace(/[^\d.]/g,''))} placeholder="850"/></label><label>Merchant<input value={merchant} onChange={event=>setMerchant(event.target.value)} placeholder="Social"/></label><label>Category<select value={category} onChange={event=>setCategory(event.target.value)}><option>Food & dining</option><option>Groceries</option><option>Transport</option><option>Shopping</option><option>Entertainment</option><option>Other</option></select></label><label>Source<input value="Voice" readOnly/></label></div>{error&&<div className="voice-error modal-error">{error}</div>}<button className="save-expense" type="submit">Save to unified ledger</button><small className="voice-privacy">Your microphone is used only while listening. Always review the parsed amount before saving.</small></form></div>;
+function GoalModal({ close, save }: { close:()=>void; save:(goal:GoalItem)=>void }) {
+  const [title,setTitle]=useState(''); const [target,setTarget]=useState(''); const [saved,setSaved]=useState('0'); const [date,setDate]=useState('December 2027'); const [error,setError]=useState('');
+  const submit=(event:FormEvent)=>{event.preventDefault();const targetValue=Number(target),savedValue=Number(saved);if(!title.trim()||!Number.isFinite(targetValue)||targetValue<=0||savedValue<0){setError('Enter a goal name and valid amounts.');return;}if(savedValue>targetValue){setError('Starting amount cannot exceed the target.');return;}save({title:title.trim(),target:targetValue,saved:savedValue,date:date.trim()||'No deadline',color:'blue'});};
+  return <div className="modal-backdrop" onMouseDown={close}><form className="goal-modal" onSubmit={submit} onMouseDown={e=>e.stopPropagation()}><button type="button" className="close-modal" onClick={close}><X/></button><div className="modal-symbol"><Target/></div><span>NEW SAVINGS GOAL</span><h2>What are you saving for?</h2><p>Give the goal a clear target and deadline.</p><label>Goal name<input autoFocus value={title} onChange={e=>setTitle(e.target.value)} placeholder="e.g. Home deposit"/></label><div className="form-pair"><label>Target amount<input inputMode="numeric" value={target} onChange={e=>setTarget(e.target.value.replace(/\D/g,''))} placeholder="500000"/></label><label>Already saved<input inputMode="numeric" value={saved} onChange={e=>setSaved(e.target.value.replace(/\D/g,''))}/></label></div><label>Target date<input value={date} onChange={e=>setDate(e.target.value)} placeholder="December 2027"/></label>{error&&<div className="form-error">{error}</div>}<button className="primary modal-submit" type="submit">Create goal</button></form></div>;
 }
 
 export default function FinPulseApp() {
-  const [page,setPage]=useState<PageId>('dashboard');
-  const [theme,setTheme]=useState<Theme>('light');
-  const [ledger,setLedger]=useState<LedgerTransaction[]>(transactions);
-  const [voiceOpen,setVoiceOpen]=useState(false);
-  const [menuOpen,setMenuOpen]=useState(false);
-  const [toast,setToast]=useState('');
-  useEffect(()=>{
-    const saved=window.localStorage.getItem('finpulse-theme');
-    const preferred:Theme=saved==='light'||saved==='dark'
-      ? saved
-      : window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';
-    document.documentElement.dataset.theme=preferred;
-    document.documentElement.style.colorScheme=preferred;
-    setTheme(preferred);
-  },[]);
-  const chooseTheme=(next:Theme)=>{
-    setTheme(next);
-    document.documentElement.dataset.theme=next;
-    document.documentElement.style.colorScheme=next;
-    window.localStorage.setItem('finpulse-theme',next);
-  };
-  const notify=(text:string)=>{setToast(text);setTimeout(()=>setToast(''),2400)};
-  const go=(id:PageId)=>{setPage(id);setMenuOpen(false);window.scrollTo({top:0,behavior:'smooth'})};
-  const saveVoiceExpense=(expense:ExpenseDraft)=>{
-    const transaction:LedgerTransaction={id:Date.now(),merchant:expense.merchant,category:expense.category,date:'Today, just now',amount:-Math.abs(expense.amount),icon:expense.merchant.charAt(0).toUpperCase()||'V',color:'blue',status:'Completed'};
-    setLedger(current=>[transaction,...current]);
-    setVoiceOpen(false);
-    go('transactions');
-    notify(`₹${expense.amount.toLocaleString('en-IN')} expense added to the ledger`);
-  };
-  return <main className="app-shell"><aside className={`sidebar ${menuOpen?'open':''}`}><div className="brand"><span className="brand-mark">F</span><span>FinPulse</span><button className="sidebar-close" onClick={()=>setMenuOpen(false)}><X size={20}/></button></div><nav className="main-nav">{navItems.map(({id,label,icon:Icon})=><button onClick={()=>go(id)} className={page===id?'nav-item active':'nav-item'} key={id}><Icon size={18}/><span>{label}</span>{page===id&&<i/>}</button>)}</nav><div className="nav-bottom"><button className="nav-item"><Settings size={18}/><span>Settings</span></button><button className="nav-item"><Headphones size={18}/><span>Help & support</span></button><div className="profile-card"><span className="avatar">AS</span><div><strong>Alex Sharma</strong><small>alex@example.com</small></div><MoreHorizontal size={16}/></div></div></aside>{menuOpen&&<button className="sidebar-scrim" aria-label="Close menu" onClick={()=>setMenuOpen(false)}/>}<section className="workspace"><header className="topbar"><button className="mobile-menu" onClick={()=>setMenuOpen(true)}><Menu size={21}/></button><div className="page-heading"><span className="eyebrow">Tuesday, September 2</span><h1>{pageMeta[page].title}</h1><p>{pageMeta[page].subtitle}</p></div><div className="header-actions"><div className="theme-switcher" role="group" aria-label="Choose appearance"><button className={theme==='light'?'active':''} onClick={()=>chooseTheme('light')} aria-pressed={theme==='light'} title="Use white theme"><Sun size={15}/><span>White</span></button><button className={theme==='dark'?'active':''} onClick={()=>chooseTheme('dark')} aria-pressed={theme==='dark'} title="Use dark theme"><Moon size={15}/><span>Dark</span></button></div><button className="voice-button" onClick={()=>setVoiceOpen(true)}><Mic size={16}/> <span>Voice expense</span></button><button className="ghost-button" onClick={()=>notify('Statement import is ready for your file')}><Upload size={16}/><span>Import</span></button><button className="primary-button" onClick={()=>notify('Account connection flow opened')}><Plus size={16}/><span>Add account</span></button><button className="icon-button notification" aria-label="Notifications" onClick={()=>go('transactions')}><Bell size={18}/><i/></button><span className="avatar top-avatar">AS</span></div></header><div className="content">{page==='dashboard'?<Dashboard navigate={go} ledger={ledger}/>:page==='transactions'?<TransactionsPage ledger={ledger}/>:page==='analytics'?<AnalyticsPage/>:page==='assistant'?<AssistantPage ledger={ledger}/>:page==='goals'?<GoalsPage/>:<CreditPage/>}</div><nav className="mobile-nav">{navItems.map(({id,label,icon:Icon})=><button onClick={()=>go(id)} className={page===id?'active':''} key={id}><Icon size={19}/><span>{label.replace(' & alerts','').replace('Savings ','')}</span></button>)}</nav><button className="floating-mic" onClick={()=>setVoiceOpen(true)} aria-label="Add voice expense"><Mic size={20}/></button></section>{voiceOpen&&<VoiceModal close={()=>setVoiceOpen(false)} save={saveVoiceExpense}/>} {toast&&<div className="toast"><Check size={17}/>{toast}</div>}</main>;
+  const [page,setPage]=useState<PageId>('overview'); const [theme,setTheme]=useState<Theme>('light'); const [menuOpen,setMenuOpen]=useState(false); const [goalOpen,setGoalOpen]=useState(false); const [goalItems,setGoalItems]=useState<GoalItem[]>(seedGoals); const [toast,setToast]=useState('');
+  useEffect(()=>{const saved=window.localStorage.getItem('finpulse-theme');const selected=saved==='dark'?'dark':'light';document.documentElement.dataset.theme=selected;document.documentElement.style.colorScheme=selected;setTheme(selected);const stored=window.localStorage.getItem('finpulse-goals');if(stored){try{setGoalItems(JSON.parse(stored) as GoalItem[])}catch{}}},[]);
+  const chooseTheme=(next:Theme)=>{setTheme(next);document.documentElement.dataset.theme=next;document.documentElement.style.colorScheme=next;window.localStorage.setItem('finpulse-theme',next)}; const notify=(message:string)=>{setToast(message);window.setTimeout(()=>setToast(''),2600)}; const go=(next:PageId)=>{setPage(next);setMenuOpen(false);window.scrollTo({top:0,behavior:'smooth'})};
+  const saveGoal=(goal:GoalItem)=>{const updated=[...goalItems,goal];setGoalItems(updated);window.localStorage.setItem('finpulse-goals',JSON.stringify(updated));setGoalOpen(false);go('goals');notify(`${goal.title} goal created`)}; const contribute=(index:number)=>{const updated=goalItems.map((item,i)=>i===index?{...item,saved:Math.min(item.target,item.saved+5000)}:item);setGoalItems(updated);window.localStorage.setItem('finpulse-goals',JSON.stringify(updated));notify('₹5,000 contribution added')};
+  const content=page==='overview'?<Overview go={go}/>:page==='ledger'?<LedgerPage/>:page==='accounts'?<AccountsPage notify={notify}/>:page==='insights'?<InsightsPage go={go}/>:page==='health'?<HealthPage/>:page==='goals'?<GoalsPage items={goalItems} addGoal={()=>setGoalOpen(true)} contribute={contribute}/>:page==='fraud'?<FraudPage notify={notify}/>:page==='tax'?<TaxPage/>:page==='settings'?<SettingsPage theme={theme} chooseTheme={chooseTheme}/>:<ManagePage notify={notify}/>;
+  return <main className="app-shell"><aside className={`sidebar ${menuOpen?'open':''}`}><div className="brand"><span className="pulse-logo"><i/><b/></span><strong>FinPulse</strong><button className="sidebar-close" onClick={()=>setMenuOpen(false)} aria-label="Close navigation"><X/></button></div><nav className="main-nav">{mainNav.map(({id,label,icon:Icon})=><button key={id} onClick={()=>go(id)} className={page===id?'active':''}><Icon/><span>{label}</span></button>)}</nav><div className="side-bottom"><button className={page==='settings'?'active':''} onClick={()=>go('settings')}><Settings/><span>Settings</span></button><button className={page==='manage'?'active':''} onClick={()=>go('manage')}><UserRound/><span>Manage account</span></button><button className="mini-theme" onClick={()=>chooseTheme(theme==='light'?'dark':'light')}>{theme==='light'?<Moon/>:<Sun/>}<span>{theme==='light'?'Dark theme':'Light theme'}</span></button></div></aside>{menuOpen&&<button className="sidebar-scrim" onClick={()=>setMenuOpen(false)} aria-label="Close navigation"/>}<section className="workspace"><header className="topbar"><button className="mobile-menu" onClick={()=>setMenuOpen(true)} aria-label="Open navigation"><Menu/></button><div className="global-search"><Search/><input placeholder="Search transactions, merchants, accounts..."/><kbd>⌘ K</kbd></div><div className="top-actions"><button className="theme-icon" onClick={()=>chooseTheme(theme==='light'?'dark':'light')} aria-label={`Use ${theme==='light'?'dark':'light'} theme`}>{theme==='light'?<Moon/>:<Sun/>}</button><button className="notification"><Bell/><i>3</i></button><span className="top-avatar">AS</span><button className="profile-button" onClick={()=>go('manage')}>Alex Sharma <ChevronDown/></button></div></header><div className="content"><div className="mobile-title"><h1>{pageCopy[page][0]}</h1><p>{pageCopy[page][1]}</p></div>{content}</div></section>{goalOpen&&<GoalModal close={()=>setGoalOpen(false)} save={saveGoal}/>} {toast&&<div className="toast"><Check/>{toast}</div>}</main>;
 }
