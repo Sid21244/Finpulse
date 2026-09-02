@@ -240,3 +240,28 @@ html[data-theme='dark'] .primary-button{background:#ececec;color:#171717;border-
   .mobile-nav button{color:var(--muted)}
   .mobile-nav button.active{color:var(--blue)}
 }
+
+.online-dot.demo{color:#b17820!important}
+.online-dot.openai{color:#10a37f!important}
+.message>div{min-width:0}
+.speak-answer{margin:5px 0 0;padding:3px 0;border:0;background:transparent;color:var(--muted);display:flex;align-items:center;gap:5px;font-size:8px}
+.speak-answer:hover{color:var(--ink)}
+.loading-message p{display:flex;align-items:center;gap:7px;color:var(--muted)}
+.loading-message svg{animation:fin-spin .9s linear infinite}
+@keyframes fin-spin{to{transform:rotate(360deg)}}
+.chat-input .assistant-voice-button{background:var(--surface);color:var(--ink);margin-right:4px}
+.chat-input .assistant-voice-button:hover{background:var(--surface-hover)}
+.chat-input .assistant-voice-button.listening{background:#d94d55;color:#fff;animation:pulse 1.4s infinite}
+.chat-input button:disabled,.quick-prompts button:disabled{cursor:not-allowed;opacity:.55}
+.voice-error{display:block;margin:8px 20px 0;color:var(--danger);font-size:9px;text-align:center}
+.modal-error{margin:12px 0 0;padding:9px 11px;border-radius:8px;background:color-mix(in srgb,var(--danger) 9%,transparent)}
+.expense-review{grid-template-columns:1fr 1fr}
+.expense-review label:last-child input{color:var(--muted);background:var(--surface)}
+.voice-modal>p{min-height:34px;line-height:1.55}
+.voice-privacy{display:block;margin:10px auto 0;max-width:320px;color:var(--muted);font-size:8px;line-height:1.45}
+
+@media(max-width:520px){
+  .expense-review{grid-template-columns:1fr}
+  .online-dot{font-size:0!important}
+  .online-dot:before{content:'●';font-size:10px}
+}
