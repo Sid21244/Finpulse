@@ -1,0 +1,7 @@
+project_id = "finpulse"
+
+[functions.financial-assistant]
+verify_jwt = true
+
+[functions.import-financial-data]
+verify_jwt = true

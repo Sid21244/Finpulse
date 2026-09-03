@@ -1,5 +1,5 @@
-import FinPulseApp from './components/FinPulseApp';
+import PublicOverview from './components/PublicOverview';
 
 export default function Home() {
-  return <FinPulseApp />;
+  return <PublicOverview />;
 }

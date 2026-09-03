@@ -1,167 +1,221 @@
-import { debts, goals, spending, transactions as seededTransactions } from '../../data/mockData';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-type LedgerItem = {
-  merchant: string;
-  category: string;
-  date: string;
-  amount: number;
-  status?: string;
-};
+type LedgerDraft = { kind: 'expense' | 'income'; amount: number; merchant: string; category: string; occurredAt: string; transcript: string };
+type MoneySummary = { income: number; spent: number; saved: number; savingsRate: number; liquidSavings: number };
+type Notice = { id: string; level: 'warning' | 'critical' | 'success'; title: string; message: string };
 
-const MONTHLY_INCOME = 65_000;
-const BASE_MONTHLY_EXPENSES = 41_250;
-const LIQUID_SAVINGS = 186_000;
-const ESSENTIAL_MONTHLY_EXPENSES = 35_770;
+const CATEGORY_RULES: Array<[string, RegExp]> = [
+  ['Food & Dining', /food|lunch|dinner|breakfast|restaurant|swiggy|zomato|cafe|coffee|grocery|groceries|dmart/i],
+  ['Transport', /uber|ola|rapido|taxi|cab|fuel|petrol|diesel|bus|train|metro|travel/i],
+  ['Housing', /rent|housing|maintenance/i],
+  ['Bills', /bill|electricity|water|internet|wifi|recharge|mobile|phone/i],
+  ['Shopping', /amazon|flipkart|shopping|clothes|clothing/i],
+  ['Healthcare', /medicine|medical|doctor|hospital|pharmacy|health/i],
+  ['Entertainment', /movie|netflix|spotify|game|entertainment/i],
+  ['EMI', /emi|loan payment/i],
+];
 
-function cleanLedger(value: unknown): LedgerItem[] {
-  if (!Array.isArray(value)) return seededTransactions;
-
-  return value.slice(0, 50).flatMap((item) => {
-    if (!item || typeof item !== 'object') return [];
-    const candidate = item as Partial<LedgerItem>;
-    if (
-      typeof candidate.merchant !== 'string' ||
-      typeof candidate.category !== 'string' ||
-      typeof candidate.date !== 'string' ||
-      typeof candidate.amount !== 'number' ||
-      !Number.isFinite(candidate.amount)
-    ) return [];
-
-    return [{
-      merchant: candidate.merchant.slice(0, 80),
-      category: candidate.category.slice(0, 60),
-      date: candidate.date.slice(0, 60),
-      amount: Math.round(candidate.amount * 100) / 100,
-      status: typeof candidate.status === 'string' ? candidate.status.slice(0, 40) : undefined,
-    }];
-  });
+function asNumber(value: unknown) {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function buildFinancialContext(ledger: LedgerItem[]) {
-  const voiceExpenses = ledger
-    .filter((item) => !seededTransactions.some((seed) => seed.merchant === item.merchant && seed.amount === item.amount))
-    .filter((item) => item.amount < 0)
-    .reduce((sum, item) => sum + Math.abs(item.amount), 0);
-  const monthlyExpenses = BASE_MONTHLY_EXPENSES + voiceExpenses;
-  const monthlyEmis = debts.reduce((sum, debt) => sum + debt.emi, 0);
-  const savingsRate = ((MONTHLY_INCOME - monthlyExpenses) / MONTHLY_INCOME) * 100;
-  const dti = (monthlyEmis / MONTHLY_INCOME) * 100;
-  const runway = LIQUID_SAVINGS / ESSENTIAL_MONTHLY_EXPENSES;
+function money(value: number) {
+  return `₹${Math.abs(value).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+}
 
+function signedMoney(value: number) {
+  return `${value < 0 ? '−' : ''}${money(value)}`;
+}
+
+function parseLedgerEntry(text: string): LedgerDraft | null {
+  const expenseIntent = /\b(spent|paid|bought|expense|purchase|purchased|debit|debited)\b/i.test(text);
+  const incomeIntent = /\b(credit|credited|received|earned|income|salary|deposit|deposited)\b/i.test(text);
+  if (!expenseIntent && !incomeIntent) return null;
+  const amountMatch = text.match(/(?:₹|rs\.?|inr)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)/i);
+  if (!amountMatch) return null;
+  const amount = Number(amountMatch[1].replaceAll(',', ''));
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 10_000_000) return null;
+  const merchantMatch = text.match(/\b(?:on|at|for|from)\s+(.+?)(?=\s*(?:[,!?.]|$|\s+(?:today|yesterday|this morning|this evening|last night|\d{1,2}:\d{2}\s*(?:AM|PM)|[MTWTF]?[a-z]+day)))/i);
+  const rawMerchant = merchantMatch?.[1]
+    ?.replace(/\b(?:today|yesterday|this morning|this evening|last night)\b/gi, '').trim();
+  const kind = incomeIntent && !expenseIntent ? 'income' : 'expense';
+  const fallbackMerchant = text
+    .replace(amountMatch[0], '')
+    .replace(/\b(add|spent|paid|bought|expense|purchase|purchased|debit|debited|credit|credited|received|earned|income|deposit|deposited|rupees|rs|inr)\b/gi, '')
+    .trim();
   return {
-    profile: 'Alex Sharma, salaried professional in India. All values are simulated hackathon data.',
-    metrics: {
-      monthlyIncome: MONTHLY_INCOME,
-      monthlyExpenses,
-      monthlyEmis,
-      savingsRate: Number(savingsRate.toFixed(1)),
-      debtToIncome: Number(dti.toFixed(1)),
-      emergencyRunwayMonths: Number(runway.toFixed(1)),
-      liquidSavings: LIQUID_SAVINGS,
-      flaggedTransactions: 1,
-    },
-    spending,
-    debts,
-    goals,
-    recentTransactions: ledger.slice(0, 12),
-    deterministicSignals: [
-      'Food-delivery spending is 28% above the three-month average.',
-      'Three streaming subscriptions renewed this week.',
-      'A ₹7,990 DIGITAL HUB card payment at 3:42 AM is flagged as unusual, not confirmed fraud.',
-      'Credit health shown by FinPulse is an internal estimate, not a bureau credit score.',
-    ],
+    kind,
+    amount: Math.round(amount * 100) / 100,
+    merchant: (rawMerchant || fallbackMerchant || (kind === 'income' ? 'Income' : 'Expense')).slice(0, 180),
+    category: kind === 'income' ? 'Income' : CATEGORY_RULES.find(([, rule]) => rule.test(text))?.[0] || 'Other',
+    occurredAt: new Date().toISOString(),
+    transcript: text.slice(0, 500),
   };
 }
 
-function fallbackAnswer(question: string, context: ReturnType<typeof buildFinancialContext>) {
-  const query = question.toLowerCase();
-  const { metrics } = context;
-
-  if (query.includes('afford') || query.includes('trip') || query.includes('purchase')) {
-    return `A ₹50,000 purchase would consume about ${Math.round(50_000 / metrics.liquidSavings * 100)}% of your liquid savings. Your current monthly surplus is ₹${(metrics.monthlyIncome - metrics.monthlyExpenses).toLocaleString('en-IN')}, so paying immediately would reduce your 5.2-month emergency runway. Safer option: fund it over several months without touching the emergency reserve. Assumption: your income and essential expenses stay stable.`;
-  }
-  if (query.includes('spend') || query.includes('money') || query.includes('reduce')) {
-    return `Housing is your largest category at ₹18,400, followed by food at ₹8,240. The clearest controllable issue is food delivery, which is 28% above your three-month average. A weekly cap of ₹1,400 is a realistic first cut. Evidence: September expenses are ₹${metrics.monthlyExpenses.toLocaleString('en-IN')} and your savings rate is ${metrics.savingsRate}%.`;
-  }
-  if (query.includes('debt') || query.includes('credit')) {
-    return `Your monthly EMIs total ₹${metrics.monthlyEmis.toLocaleString('en-IN')}, making debt-to-income ${metrics.debtToIncome}%. That is high, and the 36% revolving credit-card rate is the most expensive balance. Prioritize that card before accelerating the lower-rate home loan. FinPulse's credit-health indicator is an estimate, not an official bureau score.`;
-  }
-  if (query.includes('fraud') || query.includes('suspicious') || query.includes('unusual')) {
-    return `One payment needs review: ₹7,990 at DIGITAL HUB at 3:42 AM. It was flagged because the merchant is unusual and the time is outside your normal pattern. This is a warning signal, not proof of fraud; verify it before blocking the card.`;
-  }
-  if (query.includes('runway') || query.includes('emergency')) {
-    return `Your liquid savings of ₹${metrics.liquidSavings.toLocaleString('en-IN')} cover about ${metrics.emergencyRunwayMonths} months of essential expenses. That is stable, but below a strong six-month buffer. Direct the next ₹8,500 of surplus toward the emergency fund before increasing discretionary spending.`;
-  }
-
-  return `Your cash flow is positive: income is ₹${metrics.monthlyIncome.toLocaleString('en-IN')}, expenses are ₹${metrics.monthlyExpenses.toLocaleString('en-IN')}, and the savings rate is ${metrics.savingsRate}%. The biggest risks are a ${metrics.debtToIncome}% debt-to-income ratio and rising food-delivery spending. Ask about affordability, spending, debt, runway, or suspicious transactions for an evidence-backed answer.`;
+function validateLedgerDraft(value: unknown): LedgerDraft | null {
+  if (!value || typeof value !== 'object') return null;
+  const draft = value as Partial<LedgerDraft>;
+  const amount = asNumber(draft.amount);
+  const occurredAt = typeof draft.occurredAt === 'string' ? new Date(draft.occurredAt) : new Date('invalid');
+  if ((draft.kind !== 'expense' && draft.kind !== 'income') || amount <= 0 || amount > 10_000_000 || typeof draft.merchant !== 'string' || !draft.merchant.trim() ||
+      typeof draft.category !== 'string' || !draft.category.trim() || Number.isNaN(occurredAt.getTime())) return null;
+  return {
+    kind: draft.kind,
+    amount: Math.round(amount * 100) / 100,
+    merchant: draft.merchant.trim().slice(0, 180),
+    category: draft.category.trim().slice(0, 80),
+    occurredAt: occurredAt.toISOString(),
+    transcript: typeof draft.transcript === 'string' ? draft.transcript.slice(0, 500) : '',
+  };
 }
 
-function outputText(payload: unknown) {
-  if (!payload || typeof payload !== 'object') return '';
-  const response = payload as { output_text?: unknown; output?: unknown };
-  if (typeof response.output_text === 'string') return response.output_text.trim();
-  if (!Array.isArray(response.output)) return '';
+async function loadFinancialContext(supabase: SupabaseClient) {
+  const monthStart = new Date();
+  monthStart.setDate(1);
+  monthStart.setHours(0, 0, 0, 0);
+  const [profileResult, transactionResult, accountResult, budgetResult, fraudResult] = await Promise.all([
+    supabase.from('profiles').select('full_name, monthly_income, current_savings, financial_goal').maybeSingle(),
+    supabase.from('transactions').select('occurred_at, amount, merchant, category').eq('status', 'posted')
+      .gte('occurred_at', monthStart.toISOString()).order('occurred_at', { ascending: false }).limit(1000),
+    supabase.from('accounts').select('account_type, current_balance').eq('status', 'active'),
+    supabase.rpc('get_budget_status', { p_month: monthStart.toISOString().slice(0, 7) }),
+    supabase.from('fraud_signals').select('id, risk_level, title, detail').eq('status', 'open')
+      .order('created_at', { ascending: false }).limit(5),
+  ]);
+  const firstError = [profileResult, transactionResult, accountResult, budgetResult, fraudResult]
+    .find((result) => result.error)?.error;
+  if (firstError) throw new Error(firstError.message);
 
-  return response.output.flatMap((item) => {
-    if (!item || typeof item !== 'object' || !('content' in item) || !Array.isArray(item.content)) return [];
-    return item.content.flatMap((part) => {
-      if (!part || typeof part !== 'object' || !('text' in part) || typeof part.text !== 'string') return [];
-      return [part.text];
+  const transactions = transactionResult.data || [];
+  const accounts = accountResult.data || [];
+  const profile = profileResult.data;
+  const transactionIncome = transactions.reduce((sum, item) => sum + Math.max(0, asNumber(item.amount)), 0);
+  const income = transactionIncome || asNumber(profile?.monthly_income);
+  const spent = transactions.reduce((sum, item) => sum + Math.abs(Math.min(0, asNumber(item.amount))), 0);
+  const saved = income - spent;
+  const summary: MoneySummary = {
+    income, spent, saved,
+    savingsRate: income > 0 ? Math.round((saved / income) * 1000) / 10 : 0,
+    liquidSavings: accounts.filter((account) => ['bank', 'upi', 'cash'].includes(account.account_type))
+      .reduce((sum, account) => sum + asNumber(account.current_balance), 0) || asNumber(profile?.current_savings),
+  };
+
+  const notices: Notice[] = (fraudResult.data || []).map((signal) => ({
+    id: `fraud-${signal.id}`, level: signal.risk_level === 'high' ? 'critical' : 'warning',
+    title: signal.title, message: signal.detail,
+  }));
+  for (const budget of Array.isArray(budgetResult.data) ? budgetResult.data : []) {
+    const record = budget as Record<string, unknown>;
+    const pct = asNumber(record.pctUsed);
+    if (pct >= 80) notices.push({
+      id: `budget-${String(record.category)}`, level: pct >= 100 ? 'critical' : 'warning',
+      title: `${String(record.category)} budget ${pct >= 100 ? 'exceeded' : 'almost used'}`,
+      message: `${pct}% of this month's budget has been spent.`,
     });
-  }).join('\n').trim();
+  }
+  if (saved < 0) notices.push({
+    id: 'negative-cashflow', level: 'critical', title: 'Spending is above income',
+    message: `You have spent ${money(Math.abs(saved))} more than your income this month.`,
+  });
+  if (!notices.length) notices.push({
+    id: 'cashflow-status', level: 'success', title: 'Cash flow is positive',
+    message: `You have saved ${money(saved)} so far this month.`,
+  });
+  return {
+    profile: { name: profile?.full_name || 'FinPulse user', goal: profile?.financial_goal || null },
+    summary, notices: notices.slice(0, 8),
+    recentTransactions: transactions.slice(0, 10),
+  };
 }
+
+function answerQuestion(question: string, context: Awaited<ReturnType<typeof loadFinancialContext>>) {
+  const { income, spent, saved, savingsRate, liquidSavings } = context.summary;
+  const lower = question.toLowerCase();
+  if (/spend|expense/.test(lower)) return `You have spent ${money(spent)} this month. Your income is ${money(income)}, leaving ${signedMoney(saved)} after expenses.`;
+  if (/save|saving/.test(lower)) return `Your net cash flow this month is ${signedMoney(saved)}, a ${savingsRate}% savings rate. Your current liquid savings are ${money(liquidSavings)}.`;
+  if (/income|earn/.test(lower)) return `Your recorded income this month is ${money(income)}. You have spent ${money(spent)}, leaving ${signedMoney(saved)}.`;
+  if (/alert|notification|fraud|budget/.test(lower)) return context.notices.map((notice) => `${notice.title}: ${notice.message}`).join(' ');
+  return `This month: income ${money(income)}, spending ${money(spent)}, and net cash flow ${signedMoney(saved)} (${savingsRate}%). Ask about spending, savings, budgets, or alerts. You can also type “Spent 350 on lunch” to prepare an expense.`;
+}
+
+// Simple in-memory rate limiter (per user). Limit: 30 requests per minute.
+const RATE_LIMIT = 30;
+const RATE_WINDOW_MS = 60_000;
+const requestCounts = new Map<string, { count: number; windowStart: number }>();
+
+function checkRateLimit(userId: string): boolean {
+  const now = Date.now();
+  const entry = requestCounts.get(userId);
+  if (!entry || now - entry.windowStart > RATE_WINDOW_MS) {
+    requestCounts.set(userId, { count: 1, windowStart: now });
+    return true;
+  }
+  if (entry.count >= RATE_LIMIT) return false;
+  entry.count += 1;
+  return true;
+}
+
+const MAX_REQUEST_SIZE_BYTES = 32 * 1024; // 32KB
 
 export async function POST(request: Request) {
-  let body: { question?: unknown; ledger?: unknown };
-  try {
-    body = await request.json();
-  } catch {
-    return Response.json({ error: 'Invalid request body.' }, { status: 400 });
+  // Enforce request size limit to prevent abuse
+  const contentLength = Number(request.headers.get('content-length') ?? 0);
+  if (contentLength > MAX_REQUEST_SIZE_BYTES) {
+    return Response.json({ error: 'Request body too large.' }, { status: 413 });
   }
 
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+  if (!supabaseUrl || !supabaseAnonKey) return Response.json({ error: 'Supabase is not configured on the server.' }, { status: 503 });
+  const authorization = request.headers.get('authorization');
+  if (!authorization?.startsWith('Bearer ')) return Response.json({ error: 'Sign in to use FinPulse AI.' }, { status: 401 });
+  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: { Authorization: authorization } }, auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data: authData, error: authError } = await supabase.auth.getUser(authorization.slice(7));
+  if (authError || !authData.user) return Response.json({ error: 'Your session is invalid or expired. Sign in again.' }, { status: 401 });
+
+  // Rate limit per authenticated user
+  if (!checkRateLimit(authData.user.id)) {
+    return Response.json({ error: 'Too many requests. Please wait a moment and try again.' }, { status: 429 });
+  }
+
+  let body: { action?: unknown; question?: unknown; expense?: unknown; entry?: unknown };
+  try { body = await request.json(); } catch { return Response.json({ error: 'Invalid request body.' }, { status: 400 }); }
+  if (body.action === 'confirm_expense' || body.action === 'confirm_entry') {
+    const entry = validateLedgerDraft(body.entry ?? body.expense);
+    if (!entry) return Response.json({ error: 'The transaction details are invalid.' }, { status: 400 });
+    const writeResult = entry.kind === 'expense'
+      ? await supabase.rpc('create_expense', {
+          p_account_id: null, p_amount: entry.amount, p_merchant: entry.merchant, p_category: entry.category,
+          p_occurred_at: entry.occurredAt, p_channel: 'FinPulse Voice', p_transcript: entry.transcript || null,
+        })
+      : await supabase.from('transactions').insert({
+          user_id: authData.user.id, account_id: null, occurred_at: entry.occurredAt, amount: entry.amount,
+          merchant: entry.merchant, description: entry.merchant, category: 'Income', channel: 'FinPulse Voice',
+          source: entry.transcript ? 'voice' : 'manual', metadata: entry.transcript ? { voiceTranscript: entry.transcript } : {},
+        }).select('id').single();
+    if (writeResult.error) return Response.json({ error: `Transaction could not be saved: ${writeResult.error.message}` }, { status: 400 });
+    const context = await loadFinancialContext(supabase);
+    const transactionId = typeof writeResult.data === 'object' && writeResult.data && 'id' in writeResult.data ? writeResult.data.id : writeResult.data;
+    return Response.json({ answer: `${money(entry.amount)} ${entry.kind === 'income' ? 'income from' : 'expense at'} ${entry.merchant} was saved.`, source: 'private-ledger', transactionId, savedEntry: entry, ...context });
+  }
+
+  let context: Awaited<ReturnType<typeof loadFinancialContext>>;
+  try { context = await loadFinancialContext(supabase); }
+  catch (error) {
+    console.error('[FinPulse AI] Financial context error:', error instanceof Error ? error.message : String(error));
+    return Response.json({ error: 'Your financial data could not be loaded. Check that Supabase migrations are applied.' }, { status: 500 });
+  }
+  if (body.action === 'summary') return Response.json({ answer: answerQuestion('summary', context), source: 'private-ledger', ...context });
   const question = typeof body.question === 'string' ? body.question.trim().slice(0, 500) : '';
   if (!question) return Response.json({ error: 'Ask a financial question.' }, { status: 400 });
-
-  const ledger = cleanLedger(body.ledger);
-  const context = buildFinancialContext(ledger.length ? ledger : seededTransactions);
-  const fallback = fallbackAnswer(question, context);
-  const apiKey = process.env.OPENAI_API_KEY;
-
-  if (!apiKey) {
-    return Response.json({ answer: fallback, source: 'demo', reason: 'OPENAI_API_KEY is not configured.' });
-  }
-
-  try {
-    const apiResponse = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: process.env.OPENAI_MODEL || 'gpt-5.6-sol',
-        store: false,
-        max_output_tokens: 450,
-        instructions: [
-          'You are Fin, the explainable financial copilot inside the FinPulse hackathon prototype.',
-          'Use only the supplied simulated financial context. Never invent balances, transactions, or market facts.',
-          'Application code has already calculated all metrics. Explain them; do not silently recalculate or replace them.',
-          'Reference exact metrics or transactions as evidence. State material assumptions.',
-          'Keep the answer under 170 words and use plain language.',
-          'Do not present educational estimates as professional financial, credit, fraud, investment, or tax advice.',
-        ].join(' '),
-        input: `Financial context:\n${JSON.stringify(context)}\n\nUser question: ${question}`,
-      }),
-    });
-
-    if (!apiResponse.ok) throw new Error(`OpenAI request failed with ${apiResponse.status}`);
-    const payload: unknown = await apiResponse.json();
-    const answer = outputText(payload);
-    if (!answer) throw new Error('OpenAI returned no text.');
-
-    return Response.json({ answer, source: 'openai' });
-  } catch (error) {
-    console.error('FinPulse AI fallback:', error instanceof Error ? error.message : 'Unknown error');
-    return Response.json({ answer: fallback, source: 'demo', reason: 'AI service unavailable; deterministic fallback used.' });
-  }
+  const entryDraft = parseLedgerEntry(question);
+  if (entryDraft) return Response.json({
+    answer: `I understood ${entryDraft.kind === 'income' ? 'income' : 'an expense'} of ${money(entryDraft.amount)} ${entryDraft.kind === 'income' ? 'from' : 'at'} ${entryDraft.merchant}. Confirm it before I add it to your ledger.`,
+    source: 'private-ledger', expenseDraft: entryDraft, entryDraft, ...context,
+  });
+  return Response.json({ answer: answerQuestion(question, context), source: 'private-ledger', ...context });
 }
