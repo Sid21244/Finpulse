@@ -33,6 +33,11 @@ export type ProfileData = {
   phone: string;
   currency: string;
   avatar: string;
+  monthlyIncome: number;
+  currentSavings: number;
+  monthlyRent: number;
+  existingLoansEmi: number;
+  financialGoal: string;
 };
 
 const STORAGE_KEYS = {
@@ -180,10 +185,16 @@ const defaultProfile: ProfileData = {
   phone: '+91 98765 43210',
   currency: 'INR',
   avatar: 'AS',
+  monthlyIncome: 65000,
+  currentSavings: 168000,
+  monthlyRent: 18000,
+  existingLoansEmi: 6500,
+  financialGoal: 'Save more money',
 };
 
 export function getProfile(): ProfileData {
-  return load<ProfileData>(STORAGE_KEYS.profile, { ...defaultProfile });
+  const stored = load<Partial<ProfileData>>(STORAGE_KEYS.profile, {});
+  return { ...defaultProfile, ...stored };
 }
 
 export function saveProfile(profile: ProfileData) {

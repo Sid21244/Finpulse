@@ -63,9 +63,6 @@ export default function OnboardingScreen() {
       const { error: metadataError } = await supabase.auth.updateUser({ data: { full_name: name.trim() } });
       if (metadataError) throw metadataError;
 
-      // Demo data is optional. A seed failure must not undo a saved profile.
-      await supabase.rpc('seed_demo_data');
-
       router.replace('/dashboard');
       router.refresh();
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to save your profile.'); }

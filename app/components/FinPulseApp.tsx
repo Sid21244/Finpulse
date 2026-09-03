@@ -8,7 +8,7 @@ import {
   Moon, MoreHorizontal, Plus, Search, Settings, ShieldCheck, Sparkles, Sun,
   Target, TrendingUp, Trash2, UserRound, WalletCards, X,
 } from 'lucide-react';
-import { cashFlow, spending, transactions as seedTxns } from '../data/mockData';
+import { cashFlow, transactions as seedTxns } from '../data/mockData';
 import {
   getTransactions, addTransaction, updateTransaction, deleteTransaction,
   getBudgets, addBudget, updateBudget, deleteBudget,
@@ -65,8 +65,15 @@ function CashFlow() {
   return <div className="line-chart" aria-label="Income and expense trend over six months"><div className="y-labels"><span>₹70k</span><span>₹35k</span><span>₹0</span></div><div className="chart-lines income-line"/><div className="chart-lines expense-line"/><div className="chart-months">{cashFlow.map(item => <span key={item.month}>{item.month}</span>)}</div></div>;
 }
 
-function Donut() {
-  return <div className="spend-wrap"><div className="spend-donut"><div><strong>₹41,250</strong><span>Total</span></div></div><div className="spend-list">{spending.map(item => <div key={item.label}><i style={{background:item.color}}/><span>{item.label}</span><b>{inr(item.value)}</b><small>{item.percent}%</small></div>)}</div></div>;
+function Donut({ profile }: { profile: ProfileData }) {
+  const total = profile.monthlyRent + profile.existingLoansEmi;
+  const rentPercent = total > 0 ? Math.round(profile.monthlyRent / total * 100) : 0;
+  const emiPercent = total > 0 ? 100 - rentPercent : 0;
+  const slices = [
+    { label: 'Housing', value: profile.monthlyRent, percent: rentPercent, color: 'var(--blue)' },
+    { label: 'Loan / EMI', value: profile.existingLoansEmi, percent: emiPercent, color: 'var(--violet)' },
+  ];
+  return <div className="spend-wrap"><div className="spend-donut" style={{ background: total > 0 ? `conic-gradient(var(--blue) 0 ${rentPercent}%, var(--violet) ${rentPercent}% 100%)` : 'var(--soft)' }}><div><strong>{inr(total)}</strong><span>Committed</span></div></div><div className="spend-list">{slices.map(item => <div key={item.label}><i style={{background:item.color}}/><span>{item.label}</span><b>{inr(item.value)}</b><small>{item.percent}%</small></div>)}</div></div>;
 }
 
 function MiniLedger({ items, limit }: { items: TransactionItem[]; limit?: number }) {
@@ -74,8 +81,11 @@ function MiniLedger({ items, limit }: { items: TransactionItem[]; limit?: number
   return <div className="ledger-list">{shown.map(item => <div className="ledger-row" key={item.id}><span className={`merchant ${item.color}`}>{item.icon}</span><div><strong>{item.merchant}</strong><small>{item.category}</small></div><span className="date">{item.date}</span><span className="posted"><i/> {item.status}</span><b className={item.amount > 0 ? 'gain' : ''}>{inr(item.amount)}</b></div>)}</div>;
 }
 
-function Overview({ go }: { go: (page: PageId) => void }) {
-  return <><section className="metrics"><Metric label="Total balance" value="₹12,71,940" note="↑ 3.2% vs last month" icon={Landmark} tone="blue"/><Metric label="Monthly spend" value="₹41,250" note="↓ 8.7% vs last month" icon={CreditCard} tone="violet"/><Metric label="Income" value="₹65,000" note="↑ 5.4% vs last month" icon={ArrowDown} tone="green"/><Metric label="Emergency runway" value="5.2 months" note="On track" icon={ShieldCheck} tone="amber"/></section><section className="overview-grid"><div className="overview-main"><div className="charts"><article className="card cash"><CardTitle action={<button className="select-button">Last 6 months <ChevronDown size={14}/></button>}>Cash flow</CardTitle><div className="legend"><span><i className="blue-dot"/>Income</span><span><i className="red-dot"/>Expenses</span><span><i className="dash-dot"/>Net</span></div><CashFlow/></article><article className="card spending"><CardTitle action={<button className="select-button">This month <ChevronDown size={14}/></button>}>Spending by category</CardTitle><Donut/><button className="link-button" onClick={()=>go('insights')}>View full breakdown <ArrowRight size={15}/></button></article></div><div className="lower-grid"><article className="card account-preview"><CardTitle action={<button className="link-button" onClick={()=>go('accounts')}>Edit</button>}>Accounts</CardTitle>{accounts.map(({name,type,digits,balance,icon:Icon,color})=><div className="account-line" key={name}><i className={color}><Icon size={17}/></i><div><strong>{name}</strong><small>•••• {digits}</small></div><div><b>{inr(balance)}</b><small>{type}</small></div></div>)}<button className="link-button bottom-link" onClick={()=>go('accounts')}>View all accounts <ArrowRight size={15}/></button></article><article className="card recent"><CardTitle action={<button className="link-button" onClick={()=>go('ledger')}>View all</button>}>Recent transactions</CardTitle>    <MiniLedger items={seedTxns} limit={5}/><button className="link-button bottom-link" onClick={()=>go('ledger')}>View all transactions <ArrowRight size={15}/></button></article></div></div><aside className="ai-rail"><CardTitle><span className="spark-title"><Sparkles size={19}/> FinPulse AI Insights</span></CardTitle><article className="insight good"><TrendingUp size={21}/><h3>Great job staying on track!</h3><p>You’ve spent 8.7% less this month compared with August.</p><button onClick={()=>go('insights')}>View spending</button></article><article className="insight warn"><AlertTriangle size={21}/><h3>Dining is higher than usual</h3><p>You’ve spent ₹2,110 more on dining compared with your 3-month average.</p><button onClick={()=>go('insights')}>See dining trends</button></article><article className="insight tip"><Target size={21}/><h3>Boost your emergency fund</h3><p>Add ₹2,500 more this month to reach your runway goal faster.</p><button onClick={()=>go('goals')}>Adjust plan</button></article><div className="financial-tip"><Lightbulb size={20}/><div><h3>Financial tip</h3><p>Automate savings right after payday to make it effortless and consistent.</p></div></div></aside></section></>;
+function Overview({ go, profile }: { go: (page: PageId) => void; profile: ProfileData }) {
+  const committedSpend = profile.monthlyRent + profile.existingLoansEmi;
+  const surplus = profile.monthlyIncome - committedSpend;
+  const runway = committedSpend > 0 ? profile.currentSavings / committedSpend : 0;
+  return <><section className="metrics"><Metric label="Current savings" value={inr(profile.currentSavings)} note={`Goal: ${profile.financialGoal || 'Not selected'}`} icon={Landmark} tone="blue"/><Metric label="Monthly commitments" value={inr(committedSpend)} note="Rent + loan / EMI" icon={CreditCard} tone="violet"/><Metric label="Monthly income" value={inr(profile.monthlyIncome)} note={`${inr(surplus)} after fixed commitments`} icon={ArrowDown} tone="green"/><Metric label="Emergency runway" value={`${runway.toFixed(1)} months`} note={runway >= 6 ? 'Healthy buffer' : 'Build toward 6 months'} icon={ShieldCheck} tone="amber"/></section><section className="overview-grid"><div className="overview-main"><div className="charts"><article className="card cash"><CardTitle action={<button className="select-button">Last 6 months <ChevronDown size={14}/></button>}>Cash flow</CardTitle><div className="legend"><span><i className="blue-dot"/>Income</span><span><i className="red-dot"/>Expenses</span><span><i className="dash-dot"/>Net</span></div><CashFlow/></article><article className="card spending"><CardTitle action={<button className="select-button">Your baseline <ChevronDown size={14}/></button>}>Monthly commitments</CardTitle><Donut profile={profile}/><button className="link-button" onClick={()=>go('manage')}>Edit financial profile <ArrowRight size={15}/></button></article></div><div className="lower-grid"><article className="card account-preview"><CardTitle action={<button className="link-button" onClick={()=>go('accounts')}>Edit</button>}>Accounts</CardTitle>{accounts.map(({name,type,digits,balance,icon:Icon,color})=><div className="account-line" key={name}><i className={color}><Icon size={17}/></i><div><strong>{name}</strong><small>•••• {digits}</small></div><div><b>{inr(balance)}</b><small>{type}</small></div></div>)}<button className="link-button bottom-link" onClick={()=>go('accounts')}>View all accounts <ArrowRight size={15}/></button></article><article className="card recent"><CardTitle action={<button className="link-button" onClick={()=>go('ledger')}>View all</button>}>Recent transactions</CardTitle><MiniLedger items={seedTxns} limit={5}/><button className="link-button bottom-link" onClick={()=>go('ledger')}>View all transactions <ArrowRight size={15}/></button></article></div></div><aside className="ai-rail"><CardTitle><span className="spark-title"><Sparkles size={19}/> FinPulse AI Insights</span></CardTitle><article className="insight good"><TrendingUp size={21}/><h3>Your baseline is connected</h3><p>FinPulse is using your saved monthly income of {inr(profile.monthlyIncome)}.</p><button onClick={()=>go('manage')}>Review profile</button></article><article className="insight warn"><AlertTriangle size={21}/><h3>Fixed monthly commitments</h3><p>Rent and EMI total {inr(committedSpend)}, leaving {inr(surplus)} before other spending.</p><button onClick={()=>go('budgets')}>Plan a budget</button></article><article className="insight tip"><Target size={21}/><h3>{profile.financialGoal || 'Set a financial goal'}</h3><p>Your current savings provide about {runway.toFixed(1)} months against fixed commitments.</p><button onClick={()=>go('goals')}>Adjust plan</button></article><div className="financial-tip"><Lightbulb size={20}/><div><h3>Financial tip</h3><p>Keep income and commitments current so your dashboard and AI guidance stay accurate.</p></div></div></aside></section></>;
 }
 
 function LedgerPage({ txns, externalQuery, onAdd, onEdit, onDelete }: { txns: TransactionItem[]; externalQuery?: string; onAdd: () => void; onEdit: (tx: TransactionItem) => void; onDelete: (id: number) => void }) {
@@ -119,7 +129,7 @@ function SettingsPage({ theme, chooseTheme, notify }: { theme: Theme; chooseThem
 function ManagePage({ profile, saveProfile, notify }: { profile: ProfileData; saveProfile: (p: ProfileData) => void; notify: (msg: string) => void }) {
   const [form, setForm] = useState({ ...profile });
   const initials = form.fullName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
-  return <section className="card profile-settings"><div className="profile-hero"><span className="big-avatar" style={{ fontSize: 20 }}>{initials}</span><div><h2>{form.fullName}</h2><p>{form.email}</p></div><button onClick={() => notify('Profile photo picker is not available in this demo')}>Change photo</button></div><form onSubmit={(e) => { e.preventDefault(); saveProfile({ ...form, avatar: initials }); notify('Profile saved'); }}><label>Full name<input value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} /></label><label>Email address<input value={form.email} type="email" onChange={(e) => setForm({ ...form, email: e.target.value })} /></label><label>Phone number<input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></label><label>Primary currency<select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })}><option value="INR">Indian Rupee (INR)</option><option value="USD">US Dollar (USD)</option></select></label><button className="primary" type="submit">Save changes</button></form></section>;
+  return <section className="card profile-settings"><div className="profile-hero"><span className="big-avatar" style={{ fontSize: 20 }}>{initials}</span><div><h2>{form.fullName}</h2><p>{form.email}</p></div><button onClick={() => notify('Profile photo picker is not available in this demo')}>Change photo</button></div><form onSubmit={(e) => { e.preventDefault(); saveProfile({ ...form, avatar: initials }); notify('Profile saved'); }}><label>Full name<input value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} /></label><label>Email address<input value={form.email} type="email" readOnly /></label><label>Phone number<input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></label><label>Primary currency<select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })}><option value="INR">Indian Rupee (INR)</option><option value="USD">US Dollar (USD)</option></select></label><label>Monthly income (₹)<input type="number" min="0" value={form.monthlyIncome} onChange={(e) => setForm({ ...form, monthlyIncome: Number(e.target.value) })} /></label><label>Current savings (₹)<input type="number" min="0" value={form.currentSavings} onChange={(e) => setForm({ ...form, currentSavings: Number(e.target.value) })} /></label><label>Monthly rent (₹)<input type="number" min="0" value={form.monthlyRent} onChange={(e) => setForm({ ...form, monthlyRent: Number(e.target.value) })} /></label><label>Monthly loan / EMI (₹)<input type="number" min="0" value={form.existingLoansEmi} onChange={(e) => setForm({ ...form, existingLoansEmi: Number(e.target.value) })} /></label><label>Financial goal<select value={form.financialGoal} onChange={(e) => setForm({ ...form, financialGoal: e.target.value })}><option>Save more money</option><option>Reduce debt</option><option>Build emergency fund</option><option>Track spending</option><option>Improve financial health</option></select></label><button className="primary" type="submit">Save changes</button></form></section>;
 }
 
 function GoalModal({ close, save }: { close:()=>void; save:(goal:GoalItem)=>void }) {
@@ -171,7 +181,7 @@ export default function FinPulseApp() {
       if (!userData.user || !active) return;
       const { data: remoteProfile } = await supabase
         .from('profiles')
-        .select('full_name')
+        .select('full_name, monthly_income, current_savings, monthly_rent, existing_loans_emi, financial_goal')
         .eq('id', userData.user.id)
         .maybeSingle();
       if (!active) return;
@@ -180,7 +190,16 @@ export default function FinPulseApp() {
         const fullName = remoteProfile?.full_name
           || (typeof userData.user.user_metadata?.full_name === 'string' ? userData.user.user_metadata.full_name : '')
           || current.fullName;
-        const next = { ...current, fullName, email: userData.user.email || current.email };
+        const next = {
+          ...current,
+          fullName,
+          email: userData.user.email || current.email,
+          monthlyIncome: remoteProfile?.monthly_income == null ? current.monthlyIncome : Number(remoteProfile.monthly_income),
+          currentSavings: remoteProfile?.current_savings == null ? current.currentSavings : Number(remoteProfile.current_savings),
+          monthlyRent: remoteProfile?.monthly_rent == null ? current.monthlyRent : Number(remoteProfile.monthly_rent),
+          existingLoansEmi: remoteProfile?.existing_loans_emi == null ? current.existingLoansEmi : Number(remoteProfile.existing_loans_emi),
+          financialGoal: remoteProfile?.financial_goal || current.financialGoal,
+        };
         saveProfile(next);
         return next;
       });
@@ -318,7 +337,14 @@ export default function FinPulseApp() {
       }
       const { error: profileError } = await supabase
         .from('profiles')
-        .update({ full_name: p.fullName.trim() })
+        .update({
+          full_name: p.fullName.trim(),
+          monthly_income: p.monthlyIncome,
+          current_savings: p.currentSavings,
+          monthly_rent: p.monthlyRent,
+          existing_loans_emi: p.existingLoansEmi,
+          financial_goal: p.financialGoal,
+        })
         .eq('id', userData.user.id);
       const { error: metadataError } = await supabase.auth.updateUser({ data: { full_name: p.fullName.trim() } });
       if (profileError || metadataError) {
@@ -328,7 +354,7 @@ export default function FinPulseApp() {
   };
 
   // --- Content routing ---
-  const content = page === 'overview' ? <Overview go={go} /> :
+  const content = page === 'overview' ? <Overview go={go} profile={profile} /> :
     page === 'ledger' ? <LedgerPage txns={txns} externalQuery={globalQuery} onAdd={handleAddTransaction} onEdit={handleEditTransaction} onDelete={handleDeleteTransaction} /> :
     page === 'accounts' ? <AccountsPage onConnect={() => setModal('connect')} /> :
     page === 'budgets' ? <BudgetsPage budgets={budgetItems} add={handleAddBudget} edit={handleEditBudget} remove={handleDeleteBudget} /> :

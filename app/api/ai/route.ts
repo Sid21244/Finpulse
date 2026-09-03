@@ -76,7 +76,7 @@ async function loadFinancialContext(supabase: SupabaseClient) {
   monthStart.setDate(1);
   monthStart.setHours(0, 0, 0, 0);
   const [profileResult, transactionResult, accountResult, budgetResult, fraudResult] = await Promise.all([
-    supabase.from('profiles').select('full_name, monthly_income, current_savings, financial_goal').maybeSingle(),
+    supabase.from('profiles').select('full_name, monthly_income, current_savings, monthly_rent, existing_loans_emi, financial_goal').maybeSingle(),
     supabase.from('transactions').select('occurred_at, amount, merchant, category').eq('status', 'posted')
       .gte('occurred_at', monthStart.toISOString()).order('occurred_at', { ascending: false }).limit(1000),
     supabase.from('accounts').select('account_type, current_balance').eq('status', 'active'),
@@ -93,7 +93,9 @@ async function loadFinancialContext(supabase: SupabaseClient) {
   const profile = profileResult.data;
   const transactionIncome = transactions.reduce((sum, item) => sum + Math.max(0, asNumber(item.amount)), 0);
   const income = transactionIncome || asNumber(profile?.monthly_income);
-  const spent = transactions.reduce((sum, item) => sum + Math.abs(Math.min(0, asNumber(item.amount))), 0);
+  const transactionSpend = transactions.reduce((sum, item) => sum + Math.abs(Math.min(0, asNumber(item.amount))), 0);
+  const fixedCommitments = asNumber(profile?.monthly_rent) + asNumber(profile?.existing_loans_emi);
+  const spent = transactionSpend || fixedCommitments;
   const saved = income - spent;
   const summary: MoneySummary = {
     income, spent, saved,
