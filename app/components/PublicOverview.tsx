@@ -11,6 +11,11 @@ import styles from './PublicOverview.module.css';
 
 type Theme = 'dark' | 'light';
 
+function getSavedTheme(): Theme {
+  if (typeof window === 'undefined') return 'dark';
+  return window.localStorage.getItem('finpulse-theme') === 'light' ? 'light' : 'dark';
+}
+
 const transactions = [
   ['Swiggy Instamart', 'Food & Dining', '−₹1,840'],
   ['Uber Ride', 'Transport', '−₹428'],
@@ -19,15 +24,12 @@ const transactions = [
 ];
 
 export default function PublicOverview() {
-  const [theme, setTheme] = useState<Theme>('dark');
+  const [theme, setTheme] = useState<Theme>(getSavedTheme);
 
   useEffect(() => {
-    const saved = window.localStorage.getItem('finpulse-theme');
-    const nextTheme = saved === 'light' ? 'light' : 'dark';
-    setTheme(nextTheme);
-    document.documentElement.dataset.theme = nextTheme;
-    document.documentElement.style.colorScheme = nextTheme;
-  }, []);
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+  }, [theme]);
 
   function toggleTheme() {
     const nextTheme = theme === 'dark' ? 'light' : 'dark';
